@@ -1,25 +1,28 @@
+// @flow
+
 import { Fd } from "../src/fd.js";
 import { File, Directory } from "../src/fs_core.js";
-import { Fdstat } from "../src/wasi_defs.js";
+import { Fdstat, FILETYPE_UNKNOWN, FDFLAGS_APPEND } from "../src/wasi_defs.js";
 import { PreopenDirectory } from "../src/fs_fd.js";
 import WASI from "../src/wasi.js";
 import { strace } from "../src/strace.js"
 
 class XTermStdio extends Fd {
-    constructor(term) {
+    /*::term: { write: (Uint8Array) => mixed }*/
+
+    constructor(term/*: { write: (Uint8Array) => mixed }*/) {
         super();
         this.term = term;
     }
-    fd_read(x, y) {
-        console.log("Reading!", x, y)
-        return { ret: 0 }
+    fd_read(view8, iovs) {
+        console.log("Reading!", view8, iovs);
+        return { ret: 0, nread: 0 };
     }
     fd_fdstat_get() {
         console.log("FDSTAT")
-        return { ret: 0, fdstat: new Fdstat() };
+        return { ret: 0, fdstat: new Fdstat(FILETYPE_UNKNOWN, FDFLAGS_APPEND) };
     }
     fd_write(view8, iovs) {
-        console.log("Writing!")
         let nwritten = 0;
         for (let iovec of iovs) {
             // console.log(iovec.buf_len, iovec.buf_len, view8.slice(iovec.buf, iovec.buf + iovec.buf_len));
@@ -38,7 +41,12 @@ onmessage = function(e) {
 
   (async function () {
     const wasm = await WebAssembly.compileStreaming(fetch("tiny-brot.wasm"));
-    const term = {}
+    const term = {
+        write: (buf) => {
+            const s = new TextDecoder().decode(buf)
+            console.log("WASM output", s)
+        }
+    }
     const fds = [
         new XTermStdio(term),
         new XTermStdio(term),

@@ -433,8 +433,39 @@ export default class WASI {
                     return wasi.ERRNO_BADF;
                 }
             },
-            poll_oneoff(in_, out, nsubscriptions) {
-                return 0
+            poll_oneoff(in_ptr, out_ptr, nsubscriptions) {
+                // in_: *const subscription
+                // out: *mut event
+                // nsubscription: usize
+                let buffer = new DataView(self.inst.exports.memory.buffer);
+                let in_ = wasi.Subscription.read_bytes_array(
+                    buffer,
+                    in_ptr,
+                    nsubscriptions,
+                );
+                console.log("poll_oneoff", in_, out_ptr, nsubscriptions);
+                let events = [];
+                for (let sub of in_) {
+                    if (sub.u.tag.variant == "fd_read") {
+                        let event = new wasi.Event();
+                        event.userdata = sub.userdata;
+                        event.error = 0;
+                        event.type = new wasi.EventType("fd_read");
+                        event.fd_readwrite = new wasi.EventFdReadWrite(1n, new wasi.EventRwFlags());
+                        events.push(event);
+                    }
+                    if (sub.u.tag.variant == "fd_write") {
+                        let event = new wasi.Event();
+                        event.userdata = sub.userdata;
+                        event.error = 0;
+                        event.type = new wasi.EventType("fd_write");
+                        event.fd_readwrite = new wasi.EventFdReadWrite(1n, new wasi.EventRwFlags());
+                        events.push(event);
+                    }
+                }
+                console.log(events);
+                wasi.Event.write_bytes_array(buffer, out_ptr, events);
+                return events.length;
                 throw "async io not supported";
             },
             proc_exit(exit_code/*: number*/) {

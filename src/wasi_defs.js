@@ -348,3 +348,153 @@ export class Prestat {
         this.inner.write_bytes(view, ptr + 4);
     }
 }
+
+/*::declare type UserData = BigInt */ // u64
+
+export class EventType {
+    /*:: variant: "clock" | "fd_read" | "fd_write"*/
+
+    constructor(variant/*: "clock" | "fd_read" | "fd_write"*/) {
+        this.variant = variant;
+    }
+
+    static from_u8(data/*: number*/)/*: EventType*/ {
+        switch (data) {
+            case EVENTTYPE_CLOCK:
+                return new EventType("clock");
+            case EVENTTYPE_FD_READ:
+                return new EventType("fd_read");
+            case EVENTTYPE_FD_WRITE:
+                return new EventType("fd_write");
+            default:
+                throw "Invalid event type " + String(data);
+        }
+    }
+
+    to_u8()/*: number*/ {
+        switch (this.variant) {
+            case "clock":
+                return EVENTTYPE_CLOCK;
+            case "fd_read":
+                return EVENTTYPE_FD_READ;
+            case "fd_write":
+                return EVENTTYPE_FD_WRITE;
+            default:
+                throw "unreachable";
+        }
+    }
+}
+
+export class EventRwFlags {
+    /*:: hangup: bool*/
+
+    static from_u16(data/*: number*/)/*: EventRwFlags*/ {
+        let self = new EventRwFlags();
+        if ((data & EVENTRWFLAGS_FD_READWRITE_HANGUP) == EVENTRWFLAGS_FD_READWRITE_HANGUP) {
+            self.hangup = true;
+        } else {
+            self.hangup = false;
+        }
+        return self;
+    }
+
+    to_u16()/*: number*/ {
+        let res = 0;
+        if (self.hangup) {
+            res = res | EVENTRWFLAGS_FD_READWRITE_HANGUP;
+        }
+        return res;
+    }
+}
+
+export class EventFdReadWrite {
+    /*:: nbytes: BigInt*/
+    /*:: flags: EventRwFlags*/
+
+    constructor(nbytes/*: BigInt*/, flags/*: EventRwFlags*/) {
+        this.nbytes = nbytes;
+        this.flags = flags;
+    }
+
+    write_bytes(view/*: DataView*/, ptr/*: number*/) {
+        view.setBigUint64(ptr, this.nbytes, true);
+        view.setUint16(ptr + 8, this.flags.to_u16(), true);
+    }
+}
+
+export class Event {
+    /*:: userdata: UserData*/
+    /*:: error: number*/
+    /*:: type: EventType*/
+    /*:: fd_readwrite: EventFdReadWrite | null*/
+
+    write_bytes(view/*: DataView*/, ptr/*: number*/) {
+        view.setBigUint64(ptr, this.userdata, true);
+        view.setUint32(ptr + 8, this.error, true);
+        view.setUint8(ptr + 12, this.type.to_u8());
+        if (this.fd_readwrite) {
+            this.fd_readwrite.write_bytes(view, ptr + 16);
+        }
+    }
+
+    static write_bytes_array(view/*: DataView*/, ptr/*: number*/, events/*: Array<Event>*/) {
+        for (let i = 0; i < events.length; i++) {
+            events[i].write_bytes(view, ptr + 32 * i);
+        }
+    }
+}
+
+export class SubscriptionClock {
+    // FIXME
+}
+
+export class SubscriptionFdReadWrite {
+    /*:: fd: number*/
+
+    static read_bytes(view/*: DataView*/, ptr/*: number*/)/*: SubscriptionFdReadWrite*/ {
+        let self = new SubscriptionFdReadWrite();
+        self.fd = view.getUint32(ptr, true);
+        return self;
+    }
+}
+
+export class SubscriptionU {
+    /*:: tag: EventType */
+    /*:: data: SubscriptionClock | SubscriptionFdReadWrite */
+
+    static read_bytes(view/*: DataView*/, ptr/*: number*/)/*: SubscriptionU*/ {
+        let self = new SubscriptionU();
+        self.tag = EventType.from_u8(view.getUint8(ptr));
+        switch (self.tag.variant) {
+            case "clock":
+                break; // FIXME implement
+            case "fd_read":
+            case "fd_write":
+                self.data = SubscriptionFdReadWrite.read_bytes(view, ptr + 4);
+                break;
+            default:
+                throw "unreachable";
+        }
+        return self;
+    }
+}
+
+export class Subscription {
+    /*:: userdata: UserData */
+    /*:: u: SubscriptionU */
+
+    static read_bytes(view/*: DataView*/, ptr/*: number*/)/*: Subscription*/ {
+        let subscription = new Subscription();
+        subscription.userdata = view.getBigUint64(ptr, true);
+        subscription.u = SubscriptionU.read_bytes(view, ptr + 8);
+        return subscription;
+    }
+
+    static read_bytes_array(view/*: DataView*/, ptr/*: number*/, len/*: number*/)/*: Array<Subscription>*/ {
+        let subscriptions = [];
+        for (let i = 0; i < len; i++) {
+            subscriptions.push(Subscription.read_bytes(view, ptr + 12 * i));
+        }
+        return subscriptions;
+    }
+}

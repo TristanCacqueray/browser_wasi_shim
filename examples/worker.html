@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     </head>
   <body>
-    <script type="module">
-      const worker = new Worker("worker.js");
+    <script>
+      const worker = new Worker("./worker.js", {type:"module"});
       worker.onmessage = e => {
           console.log('Main: onMessage', e.data)
       }

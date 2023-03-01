@@ -61,6 +61,7 @@
       return iovecs;
     }
   };
+  var FILETYPE_UNKNOWN = 0;
   var FDFLAGS_APPEND = 1 << 0;
   var FDFLAGS_DSYNC = 1 << 1;
   var FDFLAGS_NONBLOCK = 1 << 2;
@@ -88,6 +89,9 @@
   var OFLAGS_DIRECTORY = 1 << 1;
   var OFLAGS_EXCL = 1 << 2;
   var OFLAGS_TRUNC = 1 << 3;
+  var EVENTTYPE_CLOCK = 0;
+  var EVENTTYPE_FD_READ = 1;
+  var EVENTTYPE_FD_WRITE = 2;
   var EVENTRWFLAGS_FD_READWRITE_HANGUP = 1 << 0;
   var SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME = 1 << 0;
   var RIFLAGS_RECV_PEEK = 1 << 0;
@@ -95,6 +99,117 @@
   var ROFLAGS_RECV_DATA_TRUNCATED = 1 << 0;
   var SDFLAGS_RD = 1 << 0;
   var SDFLAGS_WR = 1 << 1;
+  var EventType = class {
+    constructor(variant) {
+      this.variant = variant;
+    }
+    static from_u8(data) {
+      switch (data) {
+        case EVENTTYPE_CLOCK:
+          return new EventType("clock");
+        case EVENTTYPE_FD_READ:
+          return new EventType("fd_read");
+        case EVENTTYPE_FD_WRITE:
+          return new EventType("fd_write");
+        default:
+          throw "Invalid event type " + String(data);
+      }
+    }
+    to_u8() {
+      switch (this.variant) {
+        case "clock":
+          return EVENTTYPE_CLOCK;
+        case "fd_read":
+          return EVENTTYPE_FD_READ;
+        case "fd_write":
+          return EVENTTYPE_FD_WRITE;
+        default:
+          throw "unreachable";
+      }
+    }
+  };
+  var EventRwFlags = class {
+    static from_u16(data) {
+      let self2 = new EventRwFlags();
+      if ((data & EVENTRWFLAGS_FD_READWRITE_HANGUP) == EVENTRWFLAGS_FD_READWRITE_HANGUP) {
+        self2.hangup = true;
+      } else {
+        self2.hangup = false;
+      }
+      return self2;
+    }
+    to_u16() {
+      let res = 0;
+      if (self.hangup) {
+        res = res | EVENTRWFLAGS_FD_READWRITE_HANGUP;
+      }
+      return res;
+    }
+  };
+  var EventFdReadWrite = class {
+    constructor(nbytes, flags) {
+      this.nbytes = nbytes;
+      this.flags = flags;
+    }
+    write_bytes(view, ptr) {
+      view.setBigUint64(ptr, this.nbytes, true);
+      view.setUint16(ptr + 8, this.flags.to_u16(), true);
+    }
+  };
+  var Event = class {
+    write_bytes(view, ptr) {
+      view.setBigUint64(ptr, this.userdata, true);
+      view.setUint32(ptr + 8, this.error, true);
+      view.setUint8(ptr + 12, this.type.to_u8());
+      if (this.fd_readwrite) {
+        this.fd_readwrite.write_bytes(view, ptr + 16);
+      }
+    }
+    static write_bytes_array(view, ptr, events) {
+      for (let i = 0; i < events.length; i++) {
+        events[i].write_bytes(view, ptr + 32 * i);
+      }
+    }
+  };
+  var SubscriptionFdReadWrite = class {
+    static read_bytes(view, ptr) {
+      let self2 = new SubscriptionFdReadWrite();
+      self2.fd = view.getUint32(ptr, true);
+      return self2;
+    }
+  };
+  var SubscriptionU = class {
+    static read_bytes(view, ptr) {
+      let self2 = new SubscriptionU();
+      self2.tag = EventType.from_u8(view.getUint8(ptr));
+      switch (self2.tag.variant) {
+        case "clock":
+          break;
+        case "fd_read":
+        case "fd_write":
+          self2.data = SubscriptionFdReadWrite.read_bytes(view, ptr + 4);
+          break;
+        default:
+          throw "unreachable";
+      }
+      return self2;
+    }
+  };
+  var Subscription = class {
+    static read_bytes(view, ptr) {
+      let subscription = new Subscription();
+      subscription.userdata = view.getBigUint64(ptr, true);
+      subscription.u = SubscriptionU.read_bytes(view, ptr + 8);
+      return subscription;
+    }
+    static read_bytes_array(view, ptr, len) {
+      let subscriptions = [];
+      for (let i = 0; i < len; i++) {
+        subscriptions.push(Subscription.read_bytes(view, ptr + 12 * i));
+      }
+      return subscriptions;
+    }
+  };
 
   // src/fd.js
   var Fd = class {
@@ -209,26 +324,26 @@
       this.args = args;
       this.env = env;
       this.fds = fds;
-      let self = this;
+      let self2 = this;
       this.wasiImport = {
         args_sizes_get(argc, argv_buf_size) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          buffer.setUint32(argc, self.args.length, true);
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          buffer.setUint32(argc, self2.args.length, true);
           let buf_size = 0;
-          for (let arg of self.args) {
+          for (let arg of self2.args) {
             buf_size += arg.length + 1;
           }
           buffer.setUint32(argv_buf_size, buf_size, true);
           return 0;
         },
         args_get(argv, argv_buf) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
           let orig_argv_buf = argv_buf;
-          for (let i = 0; i < self.args.length; i++) {
+          for (let i = 0; i < self2.args.length; i++) {
             buffer.setUint32(argv, argv_buf, true);
             argv += 4;
-            let arg = new TextEncoder("utf-8").encode(self.args[i]);
+            let arg = new TextEncoder("utf-8").encode(self2.args[i]);
             buffer8.set(arg, argv_buf);
             buffer.setUint8(argv_buf + arg.length, 0);
             argv_buf += arg.length + 1;
@@ -236,18 +351,18 @@
           return 0;
         },
         environ_sizes_get(environ_count, environ_size) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          buffer.setUint32(environ_count, self.env.length, true);
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          buffer.setUint32(environ_count, self2.env.length, true);
           let buf_size = 0;
-          for (let environ of self.env) {
+          for (let environ of self2.env) {
             buf_size += environ.length + 1;
           }
           buffer.setUint32(environ_size, buf_size, true);
           return 0;
         },
         environ_get(environ, environ_buf) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
           let orig_environ_buf = environ_buf;
           for (let i = 0; i < env.length; i++) {
             buffer.setUint32(environ, environ_buf, true);
@@ -263,7 +378,7 @@
           throw "unimplemented";
         },
         clock_time_get(id, precision, time) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
           if (id === CLOCKID_REALTIME) {
             buffer.setBigUint64(time, BigInt(new Date().getTime()) * 1000000n, true);
           } else {
@@ -272,40 +387,40 @@
           return 0;
         },
         fd_advise(fd, offset, len, advice) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_advise(offset, len, advice);
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_advise(offset, len, advice);
           } else {
             return ERRNO_BADF;
           }
         },
         fd_allocate(fd, offset, len) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_allocate(offset, len);
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_allocate(offset, len);
           } else {
             return ERRNO_BADF;
           }
         },
         fd_close(fd) {
-          if (self.fds[fd] != void 0) {
-            let ret = self.fds[fd].fd_close();
-            self.fds[fd] = void 0;
+          if (self2.fds[fd] != void 0) {
+            let ret = self2.fds[fd].fd_close();
+            self2.fds[fd] = void 0;
             return ret;
           } else {
             return ERRNO_BADF;
           }
         },
         fd_datasync(fd) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_datasync();
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_datasync();
           } else {
             return ERRNO_BADF;
           }
         },
         fd_fdstat_get(fd, fdstat_ptr) {
-          if (self.fds[fd] != void 0) {
-            let { ret, fdstat } = self.fds[fd].fd_fdstat_get();
+          if (self2.fds[fd] != void 0) {
+            let { ret, fdstat } = self2.fds[fd].fd_fdstat_get();
             if (fdstat != null) {
-              fdstat.write_bytes(new DataView(self.inst.exports.memory.buffer), fdstat_ptr);
+              fdstat.write_bytes(new DataView(self2.inst.exports.memory.buffer), fdstat_ptr);
             }
             return ret;
           } else {
@@ -313,24 +428,24 @@
           }
         },
         fd_fdstat_set_flags(fd, flags) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_fdstat_set_flags(flags);
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_fdstat_set_flags(flags);
           } else {
             return ERRNO_BADF;
           }
         },
         fd_fdstat_set_rights(fd, fs_rights_base, fs_rights_inheriting) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_fdstat_set_rights(fs_rights_base, fs_rights_inheriting);
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_fdstat_set_rights(fs_rights_base, fs_rights_inheriting);
           } else {
             return ERRNO_BADF;
           }
         },
         fd_filestat_get(fd, filestat_ptr) {
-          if (self.fds[fd] != void 0) {
-            let { ret, filestat } = self.fds[fd].fd_filestat_get();
+          if (self2.fds[fd] != void 0) {
+            let { ret, filestat } = self2.fds[fd].fd_filestat_get();
             if (filestat != null) {
-              filestat.write_bytes(new DataView(self.inst.exports.memory.buffer), filestat_ptr);
+              filestat.write_bytes(new DataView(self2.inst.exports.memory.buffer), filestat_ptr);
             }
             return ret;
           } else {
@@ -338,25 +453,25 @@
           }
         },
         fd_filestat_set_size(fd, size) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_filestat_set_size(size);
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_filestat_set_size(size);
           } else {
             return ERRNO_BADF;
           }
         },
         fd_filestat_set_times(fd, atim, mtim, fst_flags) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_filestat_set_times(atim, mtim, fst_flags);
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_filestat_set_times(atim, mtim, fst_flags);
           } else {
             return ERRNO_BADF;
           }
         },
         fd_pread(fd, iovs_ptr, iovs_len, offset, nread_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let iovecs = Iovec.read_bytes_array(buffer, iovs_ptr, iovs_len);
-            let { ret, nread } = self.fds[fd].fd_pread(buffer8, iovecs, offset);
+            let { ret, nread } = self2.fds[fd].fd_pread(buffer8, iovecs, offset);
             buffer.setUint32(nread_ptr, nread, true);
             return ret;
           } else {
@@ -364,9 +479,9 @@
           }
         },
         fd_prestat_get(fd, buf_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
-            let { ret, prestat } = self.fds[fd].fd_prestat_get();
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
+            let { ret, prestat } = self2.fds[fd].fd_prestat_get();
             if (prestat != null) {
               prestat.write_bytes(buffer, buf_ptr);
             }
@@ -376,10 +491,10 @@
           }
         },
         fd_prestat_dir_name(fd, path_ptr, path_len) {
-          if (self.fds[fd] != void 0) {
-            let { ret, prestat_dir_name } = self.fds[fd].fd_prestat_dir_name();
+          if (self2.fds[fd] != void 0) {
+            let { ret, prestat_dir_name } = self2.fds[fd].fd_prestat_dir_name();
             if (prestat_dir_name != null) {
-              let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
+              let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
               buffer8.set(prestat_dir_name, path_ptr);
             }
             return ret;
@@ -388,11 +503,11 @@
           }
         },
         fd_pwrite(fd, iovs_ptr, iovs_len, offset, nwritten_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let iovecs = Ciovec.read_bytes_array(buffer, iovs_ptr, iovs_len);
-            let { ret, nwritten } = self.fds[fd].fd_pwrite(buffer8, iovecs, offset);
+            let { ret, nwritten } = self2.fds[fd].fd_pwrite(buffer8, iovecs, offset);
             buffer.setUint32(nwritten_ptr, nwritten, true);
             return ret;
           } else {
@@ -401,11 +516,11 @@
         },
         fd_read(fd, iovs_ptr, iovs_len, nread_ptr) {
           console.log("XXX: fd_read", fd);
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let iovecs = Iovec.read_bytes_array(buffer, iovs_ptr, iovs_len);
-            let { ret, nread } = self.fds[fd].fd_read(buffer8, iovecs);
+            let { ret, nread } = self2.fds[fd].fd_read(buffer8, iovecs);
             buffer.setUint32(nread_ptr, nread, true);
             return ret;
           } else {
@@ -413,12 +528,12 @@
           }
         },
         fd_readdir(fd, buf, buf_len, cookie, bufused_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let bufused = 0;
             while (true) {
-              let { ret, dirent } = self.fds[fd].fd_readdir_single(cookie);
+              let { ret, dirent } = self2.fds[fd].fd_readdir_single(cookie);
               if (ret != 0) {
                 buffer.setUint32(bufused_ptr, bufused, true);
                 return ret;
@@ -442,22 +557,22 @@
           }
         },
         fd_renumber(fd, to) {
-          if (self.fds[fd] != void 0 && self.fds[to] != void 0) {
-            let ret = self.fds[to].fd_close();
+          if (self2.fds[fd] != void 0 && self2.fds[to] != void 0) {
+            let ret = self2.fds[to].fd_close();
             if (ret != 0) {
               return ret;
             }
-            self.fds[to] = self.fds[fd];
-            self.fds[fd] = void 0;
+            self2.fds[to] = self2.fds[fd];
+            self2.fds[fd] = void 0;
             return 0;
           } else {
             return ERRNO_BADF;
           }
         },
         fd_seek(fd, offset, whence, offset_out_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
-            let { ret, offset_out } = self.fds[fd].fd_seek(offset, whence);
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
+            let { ret, offset_out } = self2.fds[fd].fd_seek(offset, whence);
             buffer.setUint32(offset_out_ptr, offset_out, true);
             return ret;
           } else {
@@ -465,16 +580,16 @@
           }
         },
         fd_sync(fd) {
-          if (self.fds[fd] != void 0) {
-            return self.fds[fd].fd_sync();
+          if (self2.fds[fd] != void 0) {
+            return self2.fds[fd].fd_sync();
           } else {
             return ERRNO_BADF;
           }
         },
         fd_tell(fd, offset_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
-            let { ret, offset } = self.fds[fd].fd_tell();
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
+            let { ret, offset } = self2.fds[fd].fd_tell();
             buffer.setUint32(offset_ptr, offset, true);
             return ret;
           } else {
@@ -482,11 +597,11 @@
           }
         },
         fd_write(fd, iovs_ptr, iovs_len, nwritten_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let iovecs = Ciovec.read_bytes_array(buffer, iovs_ptr, iovs_len);
-            let { ret, nwritten } = self.fds[fd].fd_write(buffer8, iovecs);
+            let { ret, nwritten } = self2.fds[fd].fd_write(buffer8, iovecs);
             buffer.setUint32(nwritten_ptr, nwritten, true);
             return ret;
           } else {
@@ -494,18 +609,18 @@
           }
         },
         path_create_directory(fd, path_ptr, path_len) {
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let path = new TextDecoder("utf-8").decode(buffer8.slice(path_ptr, path_ptr + path_len));
-            return self.fds[fd].path_create_directory(path);
+            return self2.fds[fd].path_create_directory(path);
           }
         },
         path_filestat_get(fd, flags, path_ptr, path_len, filestat_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let path = new TextDecoder("utf-8").decode(buffer8.slice(path_ptr, path_ptr + path_len));
-            let { ret, filestat } = self.fds[fd].path_filestat_get(flags, path);
+            let { ret, filestat } = self2.fds[fd].path_filestat_get(flags, path);
             if (filestat != null) {
               filestat.write_bytes(buffer, filestat_ptr);
             }
@@ -515,35 +630,35 @@
           }
         },
         path_filestat_set_times(fd, flags, path_ptr, path_len, atim, mtim, fst_flags) {
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let path = new TextDecoder("utf-8").decode(buffer8.slice(path_ptr, path_ptr + path_len));
-            return self.fds[fd].path_filestat_set_times(flags, path, atim, mtim, fst_flags);
+            return self2.fds[fd].path_filestat_set_times(flags, path, atim, mtim, fst_flags);
           } else {
             return ERRNO_BADF;
           }
         },
         path_link(old_fd, old_flags, old_path_ptr, old_path_len, new_fd, new_path_ptr, new_path_len) {
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[old_fd] != void 0 && self.fds[new_fd] != void 0) {
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[old_fd] != void 0 && self2.fds[new_fd] != void 0) {
             let old_path = new TextDecoder("utf-8").decode(buffer8.slice(old_path_ptr, old_path_ptr + old_path_len));
             let new_path = new TextDecoder("utf-8").decode(buffer8.slice(new_path_ptr, new_path_ptr + new_path_len));
-            return self.fds[new_fd].path_link(old_fd, old_flags, old_path, new_path);
+            return self2.fds[new_fd].path_link(old_fd, old_flags, old_path, new_path);
           } else {
             return ERRNO_BADF;
           }
         },
         path_open(fd, dirflags, path_ptr, path_len, oflags, fs_rights_base, fs_rights_inheriting, fd_flags, opened_fd_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let path = new TextDecoder("utf-8").decode(buffer8.slice(path_ptr, path_ptr + path_len));
-            let { ret, fd_obj } = self.fds[fd].path_open(dirflags, path, oflags, fs_rights_base, fs_rights_inheriting, fd_flags);
+            let { ret, fd_obj } = self2.fds[fd].path_open(dirflags, path, oflags, fs_rights_base, fs_rights_inheriting, fd_flags);
             if (ret != 0) {
               return ret;
             }
-            self.fds.push(fd_obj);
-            let opened_fd = self.fds.length - 1;
+            self2.fds.push(fd_obj);
+            let opened_fd = self2.fds.length - 1;
             buffer.setUint32(opened_fd_ptr, opened_fd, true);
             return 0;
           } else {
@@ -551,11 +666,11 @@
           }
         },
         path_readlink(fd, path_ptr, path_len, buf_ptr, buf_len, nread_ptr) {
-          let buffer = new DataView(self.inst.exports.memory.buffer);
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let path = new TextDecoder("utf-8").decode(buffer8.slice(path_ptr, path_ptr + path_len));
-            let { ret, data } = self.fds[fd].path_readlink(path);
+            let { ret, data } = self2.fds[fd].path_readlink(path);
             if (data != null) {
               if (data.length > buf_len) {
                 buffer.setUint32(nread_ptr, 0, true);
@@ -570,10 +685,10 @@
           }
         },
         path_remove_directory(fd, path_ptr, path_len) {
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let path = new TextDecoder("utf-8").decode(buffer8.slice(path_ptr, path_ptr + path_len));
-            return self.fds[fd].path_remove_directory(path);
+            return self2.fds[fd].path_remove_directory(path);
           } else {
             return ERRNO_BADF;
           }
@@ -582,26 +697,54 @@
           throw "FIXME what is the best abstraction for this?";
         },
         path_symlink(old_path_ptr, old_path_len, fd, new_path_ptr, new_path_len) {
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let old_path = new TextDecoder("utf-8").decode(buffer8.slice(old_path_ptr, old_path_ptr + old_path_len));
             let new_path = new TextDecoder("utf-8").decode(buffer8.slice(new_path_ptr, new_path_ptr + new_path_len));
-            return self.fds[fd].path_symlink(old_path, new_path);
+            return self2.fds[fd].path_symlink(old_path, new_path);
           } else {
             return ERRNO_BADF;
           }
         },
         path_unlink_file(fd, path_ptr, path_len) {
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
-          if (self.fds[fd] != void 0) {
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
+          if (self2.fds[fd] != void 0) {
             let path = new TextDecoder("utf-8").decode(buffer8.slice(path_ptr, path_ptr + path_len));
-            return self.fds[fd].path_unlink_file(path);
+            return self2.fds[fd].path_unlink_file(path);
           } else {
             return ERRNO_BADF;
           }
         },
-        poll_oneoff(in_, out, nsubscriptions) {
-          return 0;
+        poll_oneoff(in_ptr, out_ptr, nsubscriptions) {
+          let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let in_ = Subscription.read_bytes_array(
+            buffer,
+            in_ptr,
+            nsubscriptions
+          );
+          console.log("poll_oneoff", in_, out_ptr, nsubscriptions);
+          let events = [];
+          for (let sub of in_) {
+            if (sub.u.tag.variant == "fd_read") {
+              let event = new Event();
+              event.userdata = sub.userdata;
+              event.error = 0;
+              event.type = new EventType("fd_read");
+              event.fd_readwrite = new EventFdReadWrite(1n, new EventRwFlags());
+              events.push(event);
+            }
+            if (sub.u.tag.variant == "fd_write") {
+              let event = new Event();
+              event.userdata = sub.userdata;
+              event.error = 0;
+              event.type = new EventType("fd_write");
+              event.fd_readwrite = new EventFdReadWrite(1n, new EventRwFlags());
+              events.push(event);
+            }
+          }
+          console.log(events);
+          Event.write_bytes_array(buffer, out_ptr, events);
+          return events.length;
           throw "async io not supported";
         },
         proc_exit(exit_code) {
@@ -613,7 +756,7 @@
         sched_yield() {
         },
         random_get(buf, buf_len) {
-          let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
+          let buffer8 = new Uint8Array(self2.inst.exports.memory.buffer);
           for (let i = 0; i < buf_len; i++) {
             buffer8[buf + i] = Math.random() * 256 | 0;
           }
@@ -653,16 +796,15 @@
       super();
       this.term = term;
     }
-    fd_read(x, y) {
-      console.log("Reading!", x, y);
-      return { ret: 0 };
+    fd_read(view8, iovs) {
+      console.log("Reading!", view8, iovs);
+      return { ret: 0, nread: 0 };
     }
     fd_fdstat_get() {
       console.log("FDSTAT");
-      return { ret: 0, fdstat: new Fdstat() };
+      return { ret: 0, fdstat: new Fdstat(FILETYPE_UNKNOWN, FDFLAGS_APPEND) };
     }
     fd_write(view8, iovs) {
-      console.log("Writing!");
       let nwritten = 0;
       for (let iovec of iovs) {
         let buffer = view8.slice(iovec.buf, iovec.buf + iovec.buf_len);
@@ -678,7 +820,12 @@
     const arr = new Int32Array(sab);
     (async function() {
       const wasm = await WebAssembly.compileStreaming(fetch("tiny-brot.wasm"));
-      const term = {};
+      const term = {
+        write: (buf) => {
+          const s = new TextDecoder().decode(buf);
+          console.log("WASM output", s);
+        }
+      };
       const fds = [
         new XTermStdio(term),
         new XTermStdio(term),
