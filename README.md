@@ -47,3 +47,9 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you shall be dual licensed as above, without any
 additional terms or conditions.
+
+## Worker example
+
+- Regenerate the dist: `esbuild examples/worker.js --bundle --watch --outfile=dist/worker.js`
+- Serve the dist: `(cd dist; python3 serve.py)`
+- Browse: `firefox http://localhost:8000`

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    </head>
+  <body>
+    <script type="module">
+      const worker = new Worker("worker.js");
+      worker.onmessage = e => {
+          console.log('Main: onMessage', e.data)
+      }
+      const sab = new SharedArrayBuffer(1024);
+      const arr = new Int32Array(sab);
+      worker.postMessage(sab)
+      window.onkeypress = e =>  {
+          console.log("Storing key...", e.key.charCodeAt(0))
+          Atomics.store(arr, 0, e.key.charCodeAt(0))
+          Atomics.notify(arr, 0)
+      }
+    </script>
+  </body>
+</html>

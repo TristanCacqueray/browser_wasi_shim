@@ -226,6 +226,7 @@ export default class WASI {
                 }
             },
             fd_read(fd/*: number*/, iovs_ptr/*: number*/, iovs_len/*: number*/, nread_ptr/*: number*/)/*: number*/ {
+                console.log("XXX: fd_read", fd)
                 let buffer = new DataView(self.inst.exports.memory.buffer);
                 let buffer8 = new Uint8Array(self.inst.exports.memory.buffer);
                 if (self.fds[fd] != undefined) {
@@ -433,6 +434,7 @@ export default class WASI {
                 }
             },
             poll_oneoff(in_, out, nsubscriptions) {
+                return 0
                 throw "async io not supported";
             },
             proc_exit(exit_code/*: number*/) {

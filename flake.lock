@@ -1,0 +1,81 @@
+{
+  "nodes": {
+    "flake-utils": {
+      "locked": {
+        "lastModified": 1676283394,
+        "narHash": "sha256-XX2f9c3iySLCw54rJ/CZs+ZK6IQy7GXNY4nSOyu2QG4=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "3db36a8b464d0c4532ba1c7dda728f4576d6d073",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "ghc-wasm-meta": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "host": "gitlab.haskell.org",
+        "lastModified": 1676470724,
+        "narHash": "sha256-ifRh+RJ9O7at1tmHALWxmIq22vHucVJRgvsAu251MZI=",
+        "owner": "ghc",
+        "repo": "ghc-wasm-meta",
+        "rev": "be8febd209eb428ff7ad36ffc55cb69d64d6fcf8",
+        "type": "gitlab"
+      },
+      "original": {
+        "host": "gitlab.haskell.org",
+        "owner": "ghc",
+        "repo": "ghc-wasm-meta",
+        "rev": "be8febd209eb428ff7ad36ffc55cb69d64d6fcf8",
+        "type": "gitlab"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1676209454,
+        "narHash": "sha256-alj9mBkV9U6tTPDK026671D2pesLSYZZc9j5dBZJ9f0=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "8c619a1f3cedd16ea172146e30645e703d21bfc1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1677593406,
+        "narHash": "sha256-Bb9yHYj1Ut78eFqUs+qKsnvLT1YX0GKhWkVuHlJa+tE=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "da9e1809cd89f6d6a45a8c639436b9a6471ef004",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "release-22.11",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "ghc-wasm-meta": "ghc-wasm-meta",
+        "nixpkgs": "nixpkgs_2"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
