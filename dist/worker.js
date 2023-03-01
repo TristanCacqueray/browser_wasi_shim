@@ -797,10 +797,10 @@
     }
     fd_read(view8, iovs) {
       console.log("Reading!", view8, iovs);
-      return { ret: 0, nread: 0 };
+      return { ret: 0, nread: 1 };
     }
     fd_fdstat_get() {
-      return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_NONBLOCK) };
+      return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_DSYNC) };
     }
     fd_write(view8, iovs) {
       let nwritten = 0;

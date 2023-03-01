@@ -2,7 +2,7 @@
 
 import { Fd } from "../src/fd.js";
 import { File, Directory } from "../src/fs_core.js";
-import { Fdstat, FILETYPE_UNKNOWN, FILETYPE_CHARACTER_DEVICE, FDFLAGS_APPEND, FDFLAGS_NONBLOCK } from "../src/wasi_defs.js";
+import { Fdstat, FILETYPE_UNKNOWN, FILETYPE_CHARACTER_DEVICE, FDFLAGS_APPEND, FDFLAGS_NONBLOCK, FDFLAGS_DSYNC } from "../src/wasi_defs.js";
 import { PreopenDirectory } from "../src/fs_fd.js";
 import WASI from "../src/wasi.js";
 import { strace } from "../src/strace.js"
@@ -16,10 +16,10 @@ class XTermStdio extends Fd {
     }
     fd_read(view8, iovs) {
         console.log("Reading!", view8, iovs);
-        return { ret: 0, nread: 0 };
+        return { ret: 0, nread: 1 };
     }
     fd_fdstat_get() {
-        return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_NONBLOCK) };
+        return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_DSYNC) };
     }
     fd_write(view8, iovs) {
         let nwritten = 0;
