@@ -2,7 +2,7 @@
 
 import { Fd } from "../src/fd.js";
 import { File, Directory } from "../src/fs_core.js";
-import { Fdstat, FILETYPE_UNKNOWN, FDFLAGS_APPEND } from "../src/wasi_defs.js";
+import { Fdstat, FILETYPE_UNKNOWN, FILETYPE_CHARACTER_DEVICE, FDFLAGS_APPEND, FDFLAGS_NONBLOCK } from "../src/wasi_defs.js";
 import { PreopenDirectory } from "../src/fs_fd.js";
 import WASI from "../src/wasi.js";
 import { strace } from "../src/strace.js"
@@ -19,8 +19,7 @@ class XTermStdio extends Fd {
         return { ret: 0, nread: 0 };
     }
     fd_fdstat_get() {
-        console.log("FDSTAT")
-        return { ret: 0, fdstat: new Fdstat(FILETYPE_UNKNOWN, FDFLAGS_APPEND) };
+        return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_NONBLOCK) };
     }
     fd_write(view8, iovs) {
         let nwritten = 0;
@@ -40,11 +39,13 @@ onmessage = function(e) {
   const arr = new Int32Array(sab);
 
   (async function () {
-    const wasm = await WebAssembly.compileStreaming(fetch("tiny-brot.wasm"));
+    const wasm = await WebAssembly.compileStreaming(fetch("worker.wasm"));
     const term = {
         write: (buf) => {
-            const s = new TextDecoder().decode(buf)
-            console.log("WASM output", s)
+            if (buf.length > 0) {
+              const s = new TextDecoder().decode(buf)
+              console.log("WASM output", s)
+            }
         }
     }
     const fds = [

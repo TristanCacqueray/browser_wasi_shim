@@ -443,7 +443,6 @@ export default class WASI {
                     in_ptr,
                     nsubscriptions,
                 );
-                console.log("poll_oneoff", in_, out_ptr, nsubscriptions);
                 let events = [];
                 for (let sub of in_) {
                     if (sub.u.tag.variant == "fd_read") {

@@ -61,7 +61,7 @@
       return iovecs;
     }
   };
-  var FILETYPE_UNKNOWN = 0;
+  var FILETYPE_CHARACTER_DEVICE = 2;
   var FDFLAGS_APPEND = 1 << 0;
   var FDFLAGS_DSYNC = 1 << 1;
   var FDFLAGS_NONBLOCK = 1 << 2;
@@ -722,7 +722,6 @@
             in_ptr,
             nsubscriptions
           );
-          console.log("poll_oneoff", in_, out_ptr, nsubscriptions);
           let events = [];
           for (let sub of in_) {
             if (sub.u.tag.variant == "fd_read") {
@@ -801,8 +800,7 @@
       return { ret: 0, nread: 0 };
     }
     fd_fdstat_get() {
-      console.log("FDSTAT");
-      return { ret: 0, fdstat: new Fdstat(FILETYPE_UNKNOWN, FDFLAGS_APPEND) };
+      return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_NONBLOCK) };
     }
     fd_write(view8, iovs) {
       let nwritten = 0;
@@ -819,11 +817,13 @@
     const sab = e.data;
     const arr = new Int32Array(sab);
     (async function() {
-      const wasm = await WebAssembly.compileStreaming(fetch("tiny-brot.wasm"));
+      const wasm = await WebAssembly.compileStreaming(fetch("worker.wasm"));
       const term = {
         write: (buf) => {
-          const s = new TextDecoder().decode(buf);
-          console.log("WASM output", s);
+          if (buf.length > 0) {
+            const s = new TextDecoder().decode(buf);
+            console.log("WASM output", s);
+          }
         }
       };
       const fds = [
