@@ -26,6 +26,7 @@ export default class WASI {
         this.args = args;
         this.env = env;
         this.fds = fds;
+        this.createdAt = BigInt(new Date().getTime()) * 1000000n
         let self = this;
         this.wasiImport = {
             args_sizes_get(argc/*: number*/, argv_buf_size/*: number*/)/*: number*/ {
@@ -87,11 +88,14 @@ export default class WASI {
             },
             clock_time_get(id/*: number*/, precision/*: BigInt*/, time/*: number*/)/*: number*/ {
                 let buffer = new DataView(self.inst.exports.memory.buffer);
+                let now = BigInt(new Date().getTime()) * 1000000n
                 if (id === wasi.CLOCKID_REALTIME) {
-                    buffer.setBigUint64(time, BigInt(new Date().getTime()) * 1000000n, true);
+                    buffer.setBigUint64(time, now, true);
+                } else if (id === wasi.CLOCKID_MONOTONIC) {
+                    buffer.setBigUint64(time, now - self.createdAt, true);
                 } else {
-                    // TODO
                     buffer.setBigUint64(time, 0n, true);
+                    console.log("XXX unknown clock", id)
                 }
                 return 0;
             },

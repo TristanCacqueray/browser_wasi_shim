@@ -1,6 +1,7 @@
 (() => {
   // src/wasi_defs.js
   var CLOCKID_REALTIME = 0;
+  var CLOCKID_MONOTONIC = 1;
   var ERRNO_BADF = 8;
   var RIGHTS_FD_DATASYNC = 1 << 0;
   var RIGHTS_FD_READ = 1 << 1;
@@ -171,6 +172,16 @@
       }
     }
   };
+  var SubscriptionClock = class {
+    static read_bytes(view, ptr) {
+      let self2 = new SubscriptionFdReadWrite();
+      self2.id = view.getUint32(ptr, true);
+      self2.timeout = view.getBigUint64(ptr + 8, true);
+      self2.precision = view.getBigUint64(ptr + 16, true);
+      self2.flags = view.getUint16(ptr + 24, true);
+      return self2;
+    }
+  };
   var SubscriptionFdReadWrite = class {
     static read_bytes(view, ptr) {
       let self2 = new SubscriptionFdReadWrite();
@@ -184,6 +195,7 @@
       self2.tag = EventType.from_u8(view.getUint8(ptr));
       switch (self2.tag.variant) {
         case "clock":
+          self2.data = SubscriptionClock.read_bytes(view, ptr + 4);
           break;
         case "fd_read":
         case "fd_write":
@@ -306,6 +318,7 @@
   };
 
   // src/wasi.js
+  var ctx = 0;
   var WASI = class {
     args = [];
     env = [];
@@ -324,6 +337,7 @@
       this.args = args;
       this.env = env;
       this.fds = fds;
+      this.createdAt = BigInt(new Date().getTime()) * 1000000n;
       let self2 = this;
       this.wasiImport = {
         args_sizes_get(argc, argv_buf_size) {
@@ -379,10 +393,14 @@
         },
         clock_time_get(id, precision, time) {
           let buffer = new DataView(self2.inst.exports.memory.buffer);
+          let now = BigInt(new Date().getTime()) * 1000000n;
           if (id === CLOCKID_REALTIME) {
-            buffer.setBigUint64(time, BigInt(new Date().getTime()) * 1000000n, true);
+            buffer.setBigUint64(time, now, true);
+          } else if (id === CLOCKID_MONOTONIC) {
+            buffer.setBigUint64(time, now - self2.createdAt, true);
           } else {
             buffer.setBigUint64(time, 0n, true);
+            console.log("XXX unknown clock", id);
           }
           return 0;
         },
@@ -715,7 +733,7 @@
             return ERRNO_BADF;
           }
         },
-        poll_oneoff(in_ptr, out_ptr, nsubscriptions) {
+        poll_oneoff(in_ptr, out_ptr, nsubscriptions, count_ptr) {
           let buffer = new DataView(self2.inst.exports.memory.buffer);
           let in_ = Subscription.read_bytes_array(
             buffer,
@@ -731,20 +749,31 @@
               event.type = new EventType("fd_read");
               event.fd_readwrite = new EventFdReadWrite(1n, new EventRwFlags());
               events.push(event);
-            }
-            if (sub.u.tag.variant == "fd_write") {
+            } else if (sub.u.tag.variant == "fd_write") {
               let event = new Event();
               event.userdata = sub.userdata;
               event.error = 0;
               event.type = new EventType("fd_write");
               event.fd_readwrite = new EventFdReadWrite(1n, new EventRwFlags());
               events.push(event);
+            } else if (sub.u.tag.variant == "clock") {
+              let event = new Event();
+              event.userdata = sub.userdata;
+              event.error = 0;
+              event.type = new EventType("clock");
+              events.push(event);
+            } else {
+              console.log("XXX unknown event", sub);
             }
           }
           console.log(events);
           Event.write_bytes_array(buffer, out_ptr, events);
-          return events.length;
-          throw "async io not supported";
+          buffer.setUint32(count_ptr, events.length, true);
+          ctx++;
+          if (ctx > 5) {
+            throw "max poll_oneoff";
+          }
+          return 0;
         },
         proc_exit(exit_code) {
           throw "exit with exit code " + exit_code;
@@ -800,7 +829,7 @@
       return { ret: 0, nread: 1 };
     }
     fd_fdstat_get() {
-      return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_DSYNC) };
+      return { ret: 0, fdstat: new Fdstat(FILETYPE_CHARACTER_DEVICE, FDFLAGS_RSYNC) };
     }
     fd_write(view8, iovs) {
       let nwritten = 0;
