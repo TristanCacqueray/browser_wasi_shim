@@ -445,7 +445,14 @@ export class Event {
 }
 
 export class SubscriptionClock {
-    // FIXME
+    static read_bytes(view, ptr) {
+        let self = new SubscriptionFdReadWrite();
+        self.id = view.getUint32(ptr, true);
+        self.timeout = view.getBigUint64(ptr + 8, true);
+        self.precision = view.getBigUint64(ptr + 16, true);
+        self.flags = view.getUint16(ptr + 24, true);
+        return self;
+    }
 }
 
 export class SubscriptionFdReadWrite {
@@ -467,7 +474,8 @@ export class SubscriptionU {
         self.tag = EventType.from_u8(view.getUint8(ptr));
         switch (self.tag.variant) {
             case "clock":
-                break; // FIXME implement
+                self.data = SubscriptionClock.read_bytes(view, ptr + 4);
+                break;
             case "fd_read":
             case "fd_write":
                 self.data = SubscriptionFdReadWrite.read_bytes(view, ptr + 4);

@@ -433,7 +433,7 @@ export default class WASI {
                     return wasi.ERRNO_BADF;
                 }
             },
-            poll_oneoff(in_ptr, out_ptr, nsubscriptions) {
+            poll_oneoff(in_ptr, out_ptr, nsubscriptions, count_ptr) {
                 // in_: *const subscription
                 // out: *mut event
                 // nsubscription: usize
@@ -453,7 +453,7 @@ export default class WASI {
                         event.fd_readwrite = new wasi.EventFdReadWrite(1n, new wasi.EventRwFlags());
                         events.push(event);
                     }
-                    if (sub.u.tag.variant == "fd_write") {
+                    else if (sub.u.tag.variant == "fd_write") {
                         let event = new wasi.Event();
                         event.userdata = sub.userdata;
                         event.error = 0;
@@ -461,11 +461,21 @@ export default class WASI {
                         event.fd_readwrite = new wasi.EventFdReadWrite(1n, new wasi.EventRwFlags());
                         events.push(event);
                     }
+                    else if (sub.u.tag.variant == "clock") {
+                        let event = new wasi.Event();
+                        event.userdata = sub.userdata;
+                        event.error = 0;
+                        event.type = new wasi.EventType("clock");
+                        events.push(event);
+                    }
+                    else {
+                        console.log("XXX unknown event", sub)
+                    }
                 }
                 console.log(events);
                 wasi.Event.write_bytes_array(buffer, out_ptr, events);
-                return events.length;
-                throw "async io not supported";
+                buffer.setUint32(count_ptr, events.length, true)
+                return 0;
             },
             proc_exit(exit_code/*: number*/) {
                 throw "exit with exit code " + exit_code;
